@@ -1,0 +1,65 @@
+.flex-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  background-color: #202124;
+  /* Dark mode bg matching dino game usually */
+  color: white;
+}
+
+body,
+html {
+  height: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.canvasCam {
+  border-radius: 12px;
+  margin: 20px;
+  border: 2px solid #535353;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+.banner {
+  color: white;
+  display: flex;
+  margin: 20px;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  opacity: 0.8;
+}
+
+a {
+  text-decoration: none;
+  color: #8ab4f8;
+}
+
+/* Game Container Overrides */
+.interstitial-wrapper {
+  max-width: 100% !important;
+  width: 90% !important;
+  margin-top: 50px !important;
+}
+
+.runner-canvas {
+  max-width: 100% !important;
+  width: 100% !important;
+}
+
+/* Make the game look bigger */
+.gameCanvas {
+  transform: scale(1.5);
+  /* Scale up for better visibility */
+  transform-origin: top center;
+  margin-bottom: 80px;
+  /* Compensation for scale */
+}
