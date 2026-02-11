@@ -3,6 +3,8 @@ import { Pose, POSE_CONNECTIONS } from "@mediapipe/pose";
 import { drawConnectors, drawLandmarks } from "@mediapipe/drawing_utils";
 import { Camera } from "@mediapipe/camera_utils";
 import ChromeDinoGame from "react-chrome-dino";
+import { ref, push, onValue, query, orderByChild, limitToLast } from "firebase/database";
+import { database } from "./firebase";
 import "./App.css";
 
 // ── localStorage helpers ──────────────────────────────────────────
@@ -42,6 +44,8 @@ function timeAgo(timestamp) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+const GAME_STATE = { START: 'START', PLAYING: 'PLAYING', GAME_OVER: 'GAME_OVER' };
+
 const App = () => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -53,9 +57,58 @@ const App = () => {
   const jumpBufferRef = useRef(null);
   const gameOverBufferRef = useRef(null);
 
-  // Stats tracking refs (non-render)
+  // ── Stats refs ────────────────────────────────────────────────
   const jumpCountRef = useRef(0);
   const roundStartRef = useRef(Date.now());
+  const handleGameOverRef = useRef(null);
+  const playerNameRef = useRef(localStorage.getItem('dino_player_name') || '');
+  const isGameActiveRef = useRef(false);
+
+  // ── Player Name State ─────────────────────────────────────────
+  const [playerName, setPlayerName] = useState(localStorage.getItem('dino_player_name') || '');
+  // ── Game State ────────────────────────────────────────────────
+  const [gameState, setGameState] = useState(GAME_STATE.START);
+  const [inputName, setInputName] = useState(localStorage.getItem('dino_player_name') || '');
+
+  // Sync ref with state just in case, though we will write to ref primarily
+  useEffect(() => {
+    playerNameRef.current = playerName;
+  }, [playerName]);
+
+  const handleNameSubmit = (e) => {
+    e.preventDefault();
+    if (inputName.trim()) {
+      const name = inputName.trim().toUpperCase().slice(0, 10);
+      setPlayerName(name);
+      playerNameRef.current = name; // Update ref immediately
+      localStorage.setItem('dino_player_name', name);
+
+      setGameState(GAME_STATE.PLAYING);
+      isGameActiveRef.current = true; // Game is active
+      jumpCountRef.current = 0;
+      roundStartRef.current = Date.now();
+    }
+  };
+
+  const handleRetry = () => {
+    setGameState(GAME_STATE.PLAYING);
+    isGameActiveRef.current = true;
+    jumpCountRef.current = 0;
+    roundStartRef.current = Date.now();
+
+    if (window.Runner && window.Runner.instance_) {
+      window.Runner.instance_.restart();
+    }
+  };
+
+  const handleMainMenu = () => {
+    setGameState(GAME_STATE.START);
+    setPlayerName('');
+    playerNameRef.current = '';
+    isGameActiveRef.current = false;
+    localStorage.removeItem('dino_player_name');
+    setInputName('');
+  };
 
   // ── React state ───────────────────────────────────────────────
   const [leaderboard, setLeaderboard] = useState(() =>
@@ -88,6 +141,12 @@ const App = () => {
 
   // ── Handle game over ──────────────────────────────────────────
   const handleGameOver = useCallback(() => {
+    // Only run if the game was considered active
+    if (!isGameActiveRef.current) return;
+
+    // Mark as inactive immediately to prevent duplicates
+    isGameActiveRef.current = false;
+
     let score = 0;
     try {
       const digits = window.Runner.instance_.distanceMeter.digits;
@@ -100,26 +159,24 @@ const App = () => {
 
     const roundTime = (Date.now() - roundStartRef.current) / 1000;
     const jumps = jumpCountRef.current;
+    const currentPlayer = playerNameRef.current; // Use Ref for latest name
 
-    setLeaderboard((prev) => {
-      const entry = {
+    console.log(`[GameOver] Saving score for ${currentPlayer}: ${score}`);
+
+    // Push score to Firebase
+    if (currentPlayer) {
+      push(ref(database, 'leaderboard'), {
+        name: currentPlayer,
         score,
-        date: Date.now(),
+        timestamp: Date.now(),
         jumps,
         time: Math.round(roundTime),
-      };
-      const updated = [...prev, entry]
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 5);
-      const idx = updated.findIndex(
-        (e) => e.date === entry.date && e.score === entry.score
-      );
-      setNewHighlight(idx);
-      setTimeout(() => setNewHighlight(-1), 3000);
-      saveStored(STORAGE_KEYS.LEADERBOARD, updated);
-      return updated;
-    });
+        gameMode: "arcade"
+      }).then(() => console.log("Score saved to Firebase"))
+        .catch(e => console.error("Firebase save error:", e));
+    }
 
+    // Update local session stats (personal only)
     setSessionStats((prev) => {
       const updated = {
         totalJumps: prev.totalJumps + jumps,
@@ -147,11 +204,37 @@ const App = () => {
       return newStreak;
     });
 
-    jumpCountRef.current = 0;
-    roundStartRef.current = Date.now();
-  }, []);
+    // We don't reset refs here; we reset them ON START/RETRY
+    setGameState(GAME_STATE.GAME_OVER);
+  }, []); // No dependencies needed as we use Refs
 
-  // ── Main effect ─────────────────────────────────────────────
+  // Keep ref strictly updated
+  useEffect(() => {
+    handleGameOverRef.current = handleGameOver;
+  }, [handleGameOver]);
+
+  // ── Firebase Leaderboard Listener ─────────────────────────────
+  useEffect(() => {
+    const scoresRef = query(
+      ref(database, "leaderboard"),
+      orderByChild("score"),
+      limitToLast(10)
+    );
+
+    const unsubscribe = onValue(scoresRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        // Convert object to array and sort descending
+        const parsed = Object.values(data).sort((a, b) => b.score - a.score);
+        setLeaderboard(parsed);
+      } else {
+        setLeaderboard([]);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+  // ── Main effect (Game Loop) ─────────────────────────────────
   useEffect(() => {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     audioContextRef.current = new AudioContext();
@@ -179,7 +262,7 @@ const App = () => {
         if (!window.Runner.instance_.gameOver.isPatched) {
           window.Runner.instance_.gameOver = function () {
             playSound(gameOverBufferRef.current);
-            handleGameOver();
+            if (handleGameOverRef.current) handleGameOverRef.current();
             originalGameOver.apply(this, arguments);
           };
           window.Runner.instance_.gameOver.isPatched = true;
@@ -232,7 +315,7 @@ const App = () => {
         const rightShoulder = results.poseLandmarks[12];
         const avgShoulderY = (leftShoulder.y + rightShoulder.y) / 2;
 
-        if (prevShoulderRef.current !== null) {
+        if (prevShoulderRef.current !== null && isGameActiveRef.current) {
           const diff = prevShoulderRef.current - avgShoulderY;
           const now = Date.now();
 
@@ -262,7 +345,7 @@ const App = () => {
     return () => {
       clearInterval(checkRunner);
     };
-  }, [handleGameOver]);
+  }, []);
 
   function playSound(buffer) {
     if (buffer && audioContextRef.current) {
@@ -321,6 +404,65 @@ const App = () => {
   // ══════════════════════════════════════════════════════════════
   return (
     <div className={`app-container ${theme}`}>
+      {/* ── Main Menu (Start Screen) ─────────────────────────── */}
+      {gameState === GAME_STATE.START && (
+        <div className="modal-overlay main-menu-overlay">
+          <div className="modal-content main-menu-card">
+            <h1 className="menu-title">JUMPING DINO 🦖</h1>
+            <p className="menu-subtitle">ARCADE EDITION</p>
+
+            <form onSubmit={handleNameSubmit}>
+              <div className="input-group">
+                <label>ENTER PLAYER NAME</label>
+                <input
+                  type="text"
+                  placeholder="PLAYER ONE"
+                  value={inputName}
+                  onChange={(e) => setInputName(e.target.value)}
+                  maxLength={10}
+                  autoFocus
+                />
+              </div>
+              <button className="start-btn pulse" type="submit" disabled={!inputName.trim()}>
+                START
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Game Over Summary ────────────────────────────────── */}
+      {gameState === GAME_STATE.GAME_OVER && (
+        <div className="modal-overlay summary-overlay">
+          <div className="modal-content summary-card">
+            <h2>GAME OVER</h2>
+            <div className="summary-stats">
+              <div className="summary-row">
+                <span>SCORE</span>
+                <span className="summary-val highlight">{lastGameScore}</span>
+              </div>
+              <div className="summary-row">
+                <span>JUMPS</span>
+                <span className="summary-val">{jumpCountRef.current}</span>
+              </div>
+              <div className="summary-row">
+                <span>PLAYER</span>
+                <span className="summary-val">{playerName}</span>
+              </div>
+            </div>
+
+            <div className="summary-actions">
+              <button onClick={handleRetry} className="retry-btn">
+                RETRY ↺
+              </button>
+              <button onClick={handleMainMenu} className="menu-btn">
+                MAIN MENU 🏠
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Left Side: Game + Camera ─────────────────────────── */}
       <div className="game-area">
         <div className="camera-container">
@@ -437,8 +579,9 @@ const App = () => {
                       }`}
                   >
                     <span className="lb-rank">{i + 1}</span>
+                    <span className="lb-name">{entry.name}</span>
                     <span className="lb-score">{entry.score}</span>
-                    <span className="lb-time">{timeAgo(entry.date)}</span>
+                    <span className="lb-time">{timeAgo(entry.timestamp)}</span>
                   </div>
                 ))}
               </div>
