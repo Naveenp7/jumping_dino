@@ -390,7 +390,7 @@ html {
   box-shadow: var(--shadow-sm);
 }
 
-/* ── Modal ─────────────────────────────────────────────────── */
+/* ── Modal view ─────────────────────────────────────────────────── */
 .modal-overlay {
   position: fixed;
   top: 0;
