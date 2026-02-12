@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import { Pose, POSE_CONNECTIONS } from "@mediapipe/pose";
 import { drawConnectors, drawLandmarks } from "@mediapipe/drawing_utils";
 import { Camera } from "@mediapipe/camera_utils";
-import ChromeDinoGame from "react-chrome-dino";
+import DinoGame from "./components/DinoGame";
 import { ref, push, onValue, query, orderByChild, limitToLast } from "firebase/database";
 import { database } from "./firebase";
 import "./App.css";
@@ -234,6 +234,11 @@ const App = () => {
 
     return () => unsubscribe();
   }, []);
+
+  const handleCrash = useCallback(() => {
+    playSound(gameOverBufferRef.current);
+    handleGameOver();
+  }, [handleGameOver]);
   // ── Main effect (Game Loop) ─────────────────────────────────
   useEffect(() => {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -255,32 +260,7 @@ const App = () => {
     loadSound("/sounds/jump.m4a", jumpBufferRef);
     loadSound("/sounds/gameover.m4a", gameOverBufferRef);
 
-    const checkRunner = setInterval(() => {
-      if (window.Runner && window.Runner.instance_) {
-        const originalGameOver = window.Runner.instance_.gameOver;
 
-        if (!window.Runner.instance_.gameOver.isPatched) {
-          window.Runner.instance_.gameOver = function () {
-            playSound(gameOverBufferRef.current);
-            if (handleGameOverRef.current) handleGameOverRef.current();
-            originalGameOver.apply(this, arguments);
-          };
-          window.Runner.instance_.gameOver.isPatched = true;
-
-          // ── Difficulty Adjustment ─────────────────────────────────
-          // Decrease starting speed (Default is usually ~8-9)
-          window.Runner.instance_.setSpeed(6);
-          // Decrease acceleration (Default is ~0.001) for slower difficulty curve
-          window.Runner.config.ACCELERATION = 0.0005;
-          // Increase gap between obstacles (Default is ~0.6) - Higher = Fewer obstacles
-          window.Runner.config.GAP_COEFFICIENT = 2.5;
-          // Limit consecutive obstacles to make it easier (Default is 2)
-          window.Runner.config.MAX_OBSTACLE_DUPLICATION = 1;
-        }
-
-        clearInterval(checkRunner);
-      }
-    }, 50);
 
     const pose = new Pose({
       locateFile: (file) =>
@@ -353,7 +333,7 @@ const App = () => {
     camera.start();
 
     return () => {
-      clearInterval(checkRunner);
+
     };
   }, []);
 
@@ -489,7 +469,16 @@ const App = () => {
           />
         </div>
         <div className="game-wrapper">
-          <ChromeDinoGame className="gameCanvas" />
+          <DinoGame
+            className="gameCanvas"
+            onGameOver={handleCrash}
+            difficulty={{
+              speed: 3.5,
+              acceleration: 0,
+              gapCoefficient: 10.0,
+              maxObstacleDuplication: 1
+            }}
+          />
         </div>
       </div>
 
