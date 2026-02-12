@@ -266,6 +266,16 @@ const App = () => {
             originalGameOver.apply(this, arguments);
           };
           window.Runner.instance_.gameOver.isPatched = true;
+
+          // ── Difficulty Adjustment ─────────────────────────────────
+          // Decrease starting speed (Default is usually ~8-9)
+          window.Runner.instance_.setSpeed(6);
+          // Decrease acceleration (Default is ~0.001) for slower difficulty curve
+          window.Runner.config.ACCELERATION = 0.0005;
+          // Increase gap between obstacles (Default is ~0.6) - Higher = Fewer obstacles
+          window.Runner.config.GAP_COEFFICIENT = 2.5;
+          // Limit consecutive obstacles to make it easier (Default is 2)
+          window.Runner.config.MAX_OBSTACLE_DUPLICATION = 1;
         }
 
         clearInterval(checkRunner);
