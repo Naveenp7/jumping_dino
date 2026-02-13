@@ -475,7 +475,7 @@ const App = () => {
             difficulty={{
               speed: 3.5,
               acceleration: 0,
-              gapCoefficient: 10.0,
+              gapCoefficient: 28.0,
               maxObstacleDuplication: 1
             }}
           />
